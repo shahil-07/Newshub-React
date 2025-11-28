@@ -11,7 +11,7 @@ import {
 import LoadingBar from 'react-top-loading-bar'
 
 const App = () => {
-  const pageSize = 12; // render a fuller grid per fetch on NewsAPI
+  const pageSize = 9; // show more headlines per fetch while staying within TheNewsAPI limits
   const apiKey = process.env.REACT_APP_NEWS_API
   const[progress, setProgress] = useState(0)
 

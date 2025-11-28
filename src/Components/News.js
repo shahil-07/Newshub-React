@@ -10,15 +10,70 @@ const News = (props) => {
     const [loading, setloading] = useState(true);
     const [page, setPage] = useState(1);
     const [totalResults, setTotalResults] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
     const [error, setError] = useState(null);
+    const [notice, setNotice] = useState(null);
     // document.title = `${capitalizeFirstLetter(props.category)} - NewsHub`;
 
     const capitalizeFirstLetter = (string) => {
         return string.charAt(0).toUpperCase() + string.slice(1);
     }
 
-    const buildNewsApiUrl = (pageNumber) => (
-        `https://newsapi.org/v2/top-headlines?country=${props.country}&category=${props.category}&apiKey=${props.apiKey}&page=${pageNumber}&pageSize=${props.pageSize}`
+    const buildTheNewsApiUrl = (pageNumber, includeLocale = true) => {
+        const params = new URLSearchParams({
+            api_token: props.apiKey,
+            categories: props.category,
+            limit: props.pageSize,
+            page: pageNumber
+        });
+
+        if (props.language) {
+            params.append('language', props.language);
+        }
+
+        if (includeLocale && props.country) {
+            params.append('locale', props.country);
+        }
+
+        return `https://api.thenewsapi.com/v1/news/top?${params.toString()}`;
+    };
+
+    const fetchHeadlines = async (pageNumber, includeLocale = true) => {
+        const response = await fetch(buildTheNewsApiUrl(pageNumber, includeLocale));
+        const parsedData = await response.json();
+        if (!response.ok || parsedData.error) {
+            throw new Error(parsedData.error?.message || 'Unable to fetch news headlines');
+        }
+        return parsedData;
+    };
+
+    const resolveHeadlines = async (pageNumber) => {
+        const shouldUseLocale = Boolean(props.country);
+        try {
+            let parsedData = await fetchHeadlines(pageNumber, shouldUseLocale);
+            if ((parsedData.data?.length ?? 0) === 0 && shouldUseLocale) {
+                parsedData = await fetchHeadlines(pageNumber, false);
+                setNotice('Showing global headlines because no articles were found for your selected region.');
+            } else {
+                setNotice(null);
+            }
+            return parsedData;
+        } catch (error) {
+            setNotice(null);
+            throw error;
+        }
+    };
+
+    const transformArticles = (data = []) => (
+        data.map(article => ({
+            title: article.title,
+            description: article.description || article.snippet,
+            urlToImage: article.image_url,
+            url: article.url,
+            author: article.author || article.source,
+            publishedAt: article.published_at,
+            source: { name: article.source || 'Unknown' }
+        }))
     );
 
     const updateNews = async () => {
@@ -26,22 +81,21 @@ const News = (props) => {
         setloading(true);
         setError(null);
         try {
-            const response = await fetch(buildNewsApiUrl(1));
+            const parsedData = await resolveHeadlines(1);
             props.setProgress(30);
-            const parsedData = await response.json();
             props.setProgress(70);
-            if (parsedData.status !== 'ok') {
-                throw new Error(parsedData.message || 'Unable to fetch news headlines');
-            }
-            setArticles(parsedData.articles || []);
-            setTotalResults(parsedData.totalResults || 0);
+            const formattedArticles = transformArticles(parsedData.data);
+            setArticles(formattedArticles);
+            setTotalResults(parsedData.meta?.found || formattedArticles.length || 0);
             setPage(1);
+            setHasMore((parsedData.meta?.found ?? formattedArticles.length) > formattedArticles.length || formattedArticles.length === props.pageSize);
         } catch (error) {
             console.error('Fetch Error:', error);
             setError(error.message);
+        } finally {
+            setloading(false);
+            props.setProgress(100);
         }
-        setloading(false);
-        props.setProgress(100);
     }
 
     useEffect(() => {
@@ -52,17 +106,18 @@ const News = (props) => {
     const fetchMoreData = async () => {
         const nextPage = page + 1;
         try {
-            const response = await fetch(buildNewsApiUrl(nextPage));
-            const parsedData = await response.json();
-            if (parsedData.status !== 'ok') {
-                throw new Error(parsedData.message || 'Unable to load more headlines');
-            }
+            const parsedData = await resolveHeadlines(nextPage);
+            const formattedArticles = transformArticles(parsedData.data);
             setPage(nextPage);
-            setArticles(articles.concat(parsedData.articles || []));
-            setTotalResults(parsedData.totalResults || totalResults);
+            setArticles(articles.concat(formattedArticles));
+            setTotalResults(parsedData.meta?.found || totalResults + formattedArticles.length);
+            if (formattedArticles.length === 0) {
+                setHasMore(false);
+            }
         } catch (error) {
             console.error('Pagination Fetch Error:', error);
             setError(error.message);
+            setHasMore(false);
         }
     };
 
@@ -71,11 +126,17 @@ const News = (props) => {
                 <h1 className="text-center" style={{ margin: '30px 0px', marginTop: '75px' }}>NewsHub - Top {capitalizeFirstLetter(props.category)} headlines</h1>
                 {error && <div className="alert alert-danger text-center" role="alert">{error}</div>}
                 {loading && <Spinner />}
+                {!loading && notice && (
+                    <div className="alert alert-info text-center" role="alert">{notice}</div>
+                )}
+                {!loading && !error && articles.length === 0 && (
+                    <p className="text-center text-muted">No articles available for this category yet. Try another filter.</p>
+                )}
                 <InfiniteScroll
                     dataLength={articles?.length || 0}
                     next={fetchMoreData}
-                    hasMore={articles.length < totalResults}
-                    loader={<Spinner />}
+                    hasMore={!error && hasMore}
+                    loader={!loading ? <Spinner /> : null}
                 >
                     <div className="container">
                         <div className="row">
