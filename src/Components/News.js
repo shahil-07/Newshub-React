@@ -10,22 +10,36 @@ const News = (props) => {
     const [loading, setloading] = useState(true);
     const [page, setPage] = useState(1);
     const [totalResults, setTotalResults] = useState(0);
+    const [error, setError] = useState(null);
     // document.title = `${capitalizeFirstLetter(props.category)} - NewsHub`;
 
     const capitalizeFirstLetter = (string) => {
         return string.charAt(0).toUpperCase() + string.slice(1);
     }
 
+    const buildNewsApiUrl = (pageNumber) => (
+        `https://newsapi.org/v2/top-headlines?country=${props.country}&category=${props.category}&apiKey=${props.apiKey}&page=${pageNumber}&pageSize=${props.pageSize}`
+    );
+
     const updateNews = async () => {
         props.setProgress(10);
-        let url = `https://newsapi.org/v2/top-headlines?country=${props.country}&category=${props.category}&apiKey=${props.apiKey}&page=${page}&pageSize=${props.pageSize}`
         setloading(true);
-        let data = await fetch(url);
-        props.setProgress(30);
-        let parsedData = await data.json();
-        props.setProgress(70);
-        setArticles(parsedData.articles);
-        setTotalResults(parsedData.totalResults);
+        setError(null);
+        try {
+            const response = await fetch(buildNewsApiUrl(1));
+            props.setProgress(30);
+            const parsedData = await response.json();
+            props.setProgress(70);
+            if (parsedData.status !== 'ok') {
+                throw new Error(parsedData.message || 'Unable to fetch news headlines');
+            }
+            setArticles(parsedData.articles || []);
+            setTotalResults(parsedData.totalResults || 0);
+            setPage(1);
+        } catch (error) {
+            console.error('Fetch Error:', error);
+            setError(error.message);
+        }
         setloading(false);
         props.setProgress(100);
     }
@@ -33,25 +47,34 @@ const News = (props) => {
     useEffect(() => {
         updateNews();
     // eslint-disable-next-line
-    }, []);
+    }, [props.category, props.country, props.pageSize]);
 
     const fetchMoreData = async () => {
-        let url = `https://newsapi.org/v2/top-headlines?country=${props.country}&category=${props.category}&apiKey=${props.apiKey}&page=${page+1}&pageSize=${props.pageSize}`
-        setPage(page + 1);
-        let data = await fetch(url);
-        let parsedData = await data.json();
-        setArticles(articles.concat(parsedData.articles));
-        setTotalResults(parsedData.totalResults);
+        const nextPage = page + 1;
+        try {
+            const response = await fetch(buildNewsApiUrl(nextPage));
+            const parsedData = await response.json();
+            if (parsedData.status !== 'ok') {
+                throw new Error(parsedData.message || 'Unable to load more headlines');
+            }
+            setPage(nextPage);
+            setArticles(articles.concat(parsedData.articles || []));
+            setTotalResults(parsedData.totalResults || totalResults);
+        } catch (error) {
+            console.error('Pagination Fetch Error:', error);
+            setError(error.message);
+        }
     };
 
         return (
             <>
                 <h1 className="text-center" style={{ margin: '30px 0px', marginTop: '75px' }}>NewsHub - Top {capitalizeFirstLetter(props.category)} headlines</h1>
+                {error && <div className="alert alert-danger text-center" role="alert">{error}</div>}
                 {loading && <Spinner />}
                 <InfiniteScroll
                     dataLength={articles?.length || 0}
                     next={fetchMoreData}
-                    hasMore={articles.length !== totalResults}
+                    hasMore={articles.length < totalResults}
                     loader={<Spinner />}
                 >
                     <div className="container">

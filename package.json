@@ -1,6 +1,5 @@
 {
   "name": "newsapp",
-  "homepage": "https://shahil-07.github.io/Newshub-React",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
